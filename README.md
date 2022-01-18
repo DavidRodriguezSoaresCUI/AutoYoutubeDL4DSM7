@@ -35,13 +35,69 @@ Simply run (as with privileges if needed) on a terminal :
 
 This will install or upgrade required packages using `Python`'s integrated package manager `pip`
 
+## Command-line options
+
+```
+$ <PYTHON> AutoYoutubeDL.py --help
+########################################
+#            AutoYoutubeDL             #
+########################################
+
+usage: AutoYoutubeDL.py [-h] [--log_progress]
+
+optional arguments:
+  -h, --help      show this help message and exit
+  --log_progress  Intended for monitoring progress without tty
+```
+
+As you can see the only element of interest is ``--log_progress``, which is handy to track execution progress in conditions where AYDL isn't launched from a terminal, for example when it is launched as a scheduled task.
 
 # Usage
 
+## Admin Setup
 
-## Using AutoYoutubeDL to keep an up-to-date backup of an evolving playlist
+Run from a terminal (with current directory containing ``AutoYoutubeDL.py``):
 
-TODO
+```
+$ <PYTHON> AutoYoutubeDL.py
+```
+
+On first launch AYDL will create file ``AutoYoutubeDL.ini`` and ask you to edit it.
+
+### Adding user directories
+
+Let's say you want to give users ``Alice`` and ``Bob`` access to AYDL. On DSM7, their respective user directory is located at ``/<VOLUME>/homes/<USERNAME>``. Recommendation: use the following paths for user's AYDL directories: ``/<VOLUME>/homes/<USERNAME>/AutoYoutubeDL``. Example of `ini` config file:
+```
+[Settings]
+surveiled_path_help = Lists paths to scan for AutoYoutubeDL.ini file.
+surveiled_path = ["/volume1/homes/Alice/AutoYoutubeDL", "/volume1/homes/Bob/AutoYoutubeDL"]
+```
+
+> Syntax warning: ``surveiled_path`` must be a JSON-compliant list of strings representing paths; if you *really need* to break the list into multiple lines (not recommended) make sure to use indentation on **all** additional lines:
+
+```
+surveiled_path = [
+    "/volume1/homes/Alice/AutoYoutubeDL",
+    "/volume1/homes/Bob/AutoYoutubeDL"
+    ]
+```
+
+On next launch, AYDL will attempt to create user directories, with a single file with instruction in it, hereby referred as ``user local config file``.
+
+## User Setup
+
+Now that each user has a ``user local config file``, AYDL will scan them on each launch to retrieve playlist/channel URLs to scan for content to download.
+
+These files come with straightforward instruction and comprehensive examples, so please refer to them. Instructions are provided in ``english`` and ``french``.
+
+> Warning: The first scan executed after adding large playlist/channel URLs can take a long time (depending on your Internet connection of course)
+
+## Notes on using AutoYoutubeDL to keep an up-to-date backup of an evolving playlist/channel
+
+- If the playlist is yours, make sure it is not private because AYDL won't be able to see it.
+- Make sure all URL respect the following format:
+    - For channels: ``https://www.youtube.com/<user|channel|c>/<channelName|channelID>``<br/>Channel URL format is diverse; channel IDs are typically 20-30 character long
+    - For playlists: ``https://www.youtube.com/playlist?list=<playlistID>``<br/>playlist IDs are typically 20-40 character long
 
 # Q&A
 
