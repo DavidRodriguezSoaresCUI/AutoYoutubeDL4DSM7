@@ -101,9 +101,31 @@ These files come with straightforward instruction and comprehensive examples, so
 
 # Q&A
 
+## What files do AYDL generate ?
+
+- ``<AYDL-directory>/AutoYoutubeDL.ini``: Configuration file, contains paths for surveiled user directories ``<user-directory>``.
+
+- ``<AYDL-directory>/AutoYoutubeDL.log``: Destination file for logging messages; Used as alternative to standard console output for use in scheduled scripts.
+
+- ``<AYDL-directory>/AutoYoutubeDL.run.log``: Contains dates at which AYDL was executed
+
+- ``<AYDL-directory>/WARNING.log``: Contains subset of log messages, specifically warning/error messages. This is a convenient way to spot issues such as trying to download private playlists.
+
+- ``<user-directory>/AutoYoutubeDL.json``: Contains data about downloaded items, to avoid unnecessary scans/checks.
+
+- ``<user-directory>/AutoYoutubeDL.txt``: ``user local config file``, for the user to add URLs of playlists/channels to backup
+
 ## How to change video naming format or quality ?
 
 TODO
+
+By default AYDL is set to search for the best available quality up to 1080p and names files as such:
+- playlist: ``./<playlist_author> - <playlist_title>/<playlist_index> - <video_title>.<extension>``
+- playlist (audio): ``./Audio/<playlist_author> - <playlist_title>/<playlist_index> - <video_title>.<extension>``
+- channel: ``./<channel_title>/<release_date> - <video_title>.<extension>``
+- channel (audio): ``./Audio/<channel_title>/<release_date> - <video_title>.<extension>``
+
+You can change these behaviours by editing ``AutoYoutubeDL.py -> YDL_FORMAT``. Refer to ``yt-dlp``'s or ``youtube-dl``'s documentation for syntax.
 
 ## How to download __age-restricted__ content
 

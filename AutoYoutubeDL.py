@@ -13,11 +13,13 @@ Author: DavidRodriguezSoaresCUI
 from DRSlib.debug import debug_var
 
 
-youtubedl_format = {
-    "naming": "./%(playlist)s/%(playlist_index)03d - %(title)s.%(ext)s",
-    "naming_audio_only": "./Audio/%(playlist)s/%(playlist_index)03d - %(title)s.%(ext)s",
-    "format": "bestvideo[ext=mp4][height<=?1080]+bestaudio[ext=m4a]/best", # "bestvideo[ext=mp4][height<=?1080]+bestaudio[ext=m4a]/best[ext=mp4]/best"
-    "format_audio_only": "bestaudio[ext=m4a]/bestaudio" # "bestvideo[ext=mp4][height<=?1080]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+YDL_FORMAT = {
+    "naming_channel": lambda _info: f"./{_info['channel']}/%(upload_date>%Y-%m-%d)s - %(title)s.%(ext)s",
+    "naming_channel_audio": lambda _info: f"./Audio/{_info['channel']}/%(upload_date>%Y-%m-%d)s - %(title)s.%(ext)s",
+    "naming_playlist": lambda _info: f"./{_info['channel'][0].upper()}{_info['channel'][1:]} - {_info['title']}/%(playlist_index)03d - %(title)s.%(ext)s",
+    "naming_playlist_audio": lambda _info: f"./Audio/{_info['channel'][0].upper()}{_info['channel'][1:]} - {_info['title']}/%(playlist_index)03d - %(title)s.%(ext)s",
+    "format": "bestvideo[ext=mp4][height<=?1080]+bestaudio[ext=m4a]/best",
+    "format_audio_only": "bestaudio[ext=m4a]/bestaudio"
 }
 
 DEFAULT_PLAYLIST_TEXT = '''# Playlist file
@@ -58,6 +60,8 @@ if __name__=='__main__':
     from pathlib import Path
     from pprint import pformat
     from typing import NoReturn, Tuple, List
+    
+    from pprint import pprint
 
     try:
         import yt_dlp
@@ -65,24 +69,23 @@ if __name__=='__main__':
         from yt_dlp.version import __version__ as YTDLP_VERSION
         from yt_dlp.utils import DateRange
     except ModuleNotFoundError:
-        print("Couldn't load yt-dlp: Please run `pip install yt-dlp`")
+        print("Couldn't load yt-dlp: Please run `pip install -r requirements.txt`")
         raise
     try:
         # from DRSlib.execute   import execute
         from DRSlib.banner    import bannerize
         from DRSlib.debug     import call_progress
         from DRSlib.spinner   import MySpinner
-        from DRSlib.os_detect import Os
         from DRSlib.utils     import LOG_FORMAT
     except ModuleNotFoundError:
-        print("Couldn't load libraries from DRSlib: Check https://github.com/DavidRodriguezSoaresCUI/DRSlib for installation instructions.")
+        print("Couldn't load libraries from DRSlib: Check https://github.com/DavidRodriguezSoaresCUI/DRSlib for installation instructions or run `pip install -r requirements.txt`.")
         raise
 
     SCRIPT_DIR = Path( __file__ ).resolve().parent
-    _OS        = Os()
+    LOCK = SCRIPT_DIR / 'AutoYoutubeDL.lock'
 
     # Logging setup
-    LOG_LEVEL = logging.INFO
+    LOG_LEVEL = logging.DEBUG
     logging.basicConfig( 
         level=LOG_LEVEL,
         format=LOG_FORMAT,
@@ -110,9 +113,6 @@ def parse_args() -> argparse.Namespace:
     ''' Get cli args '''
     parser = argparse.ArgumentParser()
     parser.add_argument('--log_progress', action='store_true', help="Intended for monitoring progress without tty")
-    # parser.add_argument("--interactive", action='store_true', help="Interactive playlist config mode.")
-    # parser.add_argument("--ignore_playlist_idx", action='store_true', help="Disables playlist idx mode (slower but detects changes in the whole playlist)")
-    # parser.add_argument("--playlist", action='store', help="Overrides playlist file")
     
     return parser.parse_args()
 
@@ -153,7 +153,7 @@ def make_default_config_file( destination_file: Path ) -> NoReturn:
     with destination_file.open('w',encoding='utf8') as f:
         cfg.write(f)
     print(f"Please fill configuration file {destination_file} before running AutoYoutubeDL again!")
-    sys.exit(0)
+    end()
 
 
 def load_config( _dir: Path = SCRIPT_DIR ) -> dict:
@@ -194,8 +194,6 @@ def surveiled_playlist_files( cfg: dict ) -> Tuple[Path,Path,Path]:
                 continue
             LOG.warning("Creating '%s' !", p)
             p.mkdir(parents=True)
-            with (SCRIPT_DIR / 'AutoYoutubeDL.rmdir.sh').open('a', encoding='utf8') as f:
-                f.write(f"rm -r -v \"{p}\"\n")
 
         # Makes sure playlist file exists
         playlist_file_p = p / "AutoYoutubeDL.txt"
@@ -233,6 +231,8 @@ def playlists_from_file( playlist_f: Path ) -> Tuple[str,bool]:
 
 def end() -> NoReturn:
     ''' Ends program '''
+    # Release Lock
+    LOCK.unlink(missing_ok=True)
     print("END OF PROGRAM")
     sys.exit(0)
 
@@ -320,6 +320,7 @@ class YDLPostProcessMonitor:
     def __init__(self):
         self._merged = set()
         self._successful_downloads = set()
+        self._audio_only = False
 
     @property
     def successful_downloads( self ) -> List[int]:
@@ -329,10 +330,20 @@ class YDLPostProcessMonitor:
     def hook( self, d: dict ):
         ''' Will be called on post-downloading progress '''
         if d['status']=='finished':
-            if d['postprocessor']=='Merger':
+            if d['postprocessor']=='MoveFiles' and self._audio_only:
+                self._successful_downloads.add( d['info_dict']['playlist_index'] )
+            elif d['postprocessor']=='Merger':
                 self._merged.add( d['info_dict']['playlist_index'] )
             elif d['postprocessor']=='MoveFiles' and d['info_dict']['playlist_index'] in self._merged:
                 self._successful_downloads.add( d['info_dict']['playlist_index'] )
+
+
+def output_template( playlist: dict, audio: bool = False ) -> str:
+    ''' Returns appropriate naming format, applies ``YDL_FORMAT`` formatter.
+    '''
+    s = 'naming_' + ('channel' if playlist['is_channel'] else 'playlist') + ('_audio' if audio else '')
+    formatter = YDL_FORMAT[s]
+    return formatter( playlist['infos'] )
 
 
 def download_playlist( playlist: dict, download_dir: Path ) -> List[int]:
@@ -342,12 +353,9 @@ def download_playlist( playlist: dict, download_dir: Path ) -> List[int]:
 
     down_monitor = YDLDownloadMonitor()
     postp_monitor = YDLPostProcessMonitor()
-    outtmp = youtubedl_format['naming'].replace( r'%(playlist)s', playlist['title'] )
-    if playlist['is_channel']:
-        outtmp = outtmp.replace('%(playlist_index)03d - ','%(upload_date>%Y-%m-%d)s - ')
     ydl_opts = { 
-        'format'  : youtubedl_format['format'],
-        'outtmpl' : { 'default': outtmp },
+        'format'  : YDL_FORMAT['format'],
+        'outtmpl' : { 'default': output_template(playlist) },
         'ignoreerrors' : True,
         'progress_hooks': [down_monitor.hook],
         'postprocessor_hooks': [postp_monitor.hook],
@@ -411,11 +419,12 @@ def download_playlist( playlist: dict, download_dir: Path ) -> List[int]:
         for k in ('progress_hooks', 'postprocessor_hooks'):
             if k in ydl_opts:
                 del ydl_opts[k]
-        ydl_opts['format'] = youtubedl_format['format_audio_only']
-        outtmp = youtubedl_format['naming_audio_only'].replace( r'%(playlist)s', playlist['title'] )
-        if playlist['is_channel']:
-            outtmp = outtmp.replace('%(playlist_index)03d - ','')
-        ydl_opts['outtmpl'] = { 'default': outtmp }
+        if skip_video_download:
+            # Progress tracking requires at least a postprocessor hook on audio downloading
+            postp_monitor._audio_only = True
+            ydl_opts['postprocessor_hooks'] = [postp_monitor.hook]
+        ydl_opts['format'] = YDL_FORMAT['format_audio_only']
+        ydl_opts['outtmpl'] = { 'default': output_template( playlist, audio=True ) }
         # Run Ydl again
         run_YDL( ydl_opts, playlist['url'] )
 
@@ -426,9 +435,9 @@ def download_playlist( playlist: dict, download_dir: Path ) -> List[int]:
 
 # Deprecated because reading titles breaks too much and it is good enough to for the
 # user to set it up
-def get_playlist_infos( url: str = None ) -> Tuple[str,int]:
+def get_playlist_infos( url: str = None ) -> tuple:
     ''' Tries to obtain playlist title and size
-    Returns: ( <title:str>, <size:int>, <is_channel:bool> )
+    Returns: ( <infos:dict>, <title:str>, <size:int>, <is_channel:bool>, <latest_video_id:str> )
     '''
     try:
         LOG.info("Fetching playlist infos for '%s'. This could take a moment ..", url)
@@ -442,11 +451,12 @@ def get_playlist_infos( url: str = None ) -> Tuple[str,int]:
                     LOG.warning("Could not resolve title; utl=`%s`;data=`%s`", url,tmp)
 
                 # Channel
-                if tmp['title']==f"{tmp['channel']} - Videos":
-                    return tmp['channel'], sum(1 for _ in tmp['entries']), True
+                if tmp['title']==f"{tmp['channel']} - Videos" or url==tmp['channel_url']:
+                    entries = list( tmp['entries'] )
+                    return tmp, tmp['channel'], len(entries), True, entries[0]['id']
                 # Playlist
                 fulltitle = f"{tmp['channel'][0].upper()}{tmp['channel'][1:]} - {tmp['title']}"
-                return fulltitle, sum(1 for _ in tmp['entries']), url==tmp['channel_url']
+                return tmp, fulltitle, sum(1 for _ in tmp['entries']), False, None
     except Exception as e:
         print(f"YoutubeDL failed to obtain the playlist title. Perhaps you mistyped the URL or the playlist is private (in which case a solution would be to make it unlisted or public). error : {e}")
         raise
@@ -486,24 +496,26 @@ def main() -> None:
         # process playlists
         for playlist_url_s, do_extract_audio in playlists_from_file(surveiled_playlist_p):
             try:
-                playlist_title, playlist_len, playlist_is_yt_channel = get_playlist_infos(playlist_url_s)
+                playlist_infos, playlist_title, playlist_len, playlist_is_yt_channel, latest_video_id = get_playlist_infos(playlist_url_s)
             except yt_dlp.utils.ExtractorError:
                 LOG.warning("Playlist %s does not exist or is private!", playlist_url_s)
                 continue
             
             if playlist_url_s not in _db:
-                LOG.info("Added new channel: %s", playlist_title)
+                LOG.info("Added new playlist/channel: %s", playlist_title)
                 _db[playlist_url_s] = {
-                    'title': playlist_title,
-                    'done': []
+                    'title': playlist_title
                 }
             elif _db[playlist_url_s]['title']!=playlist_title:
-                LOG.warning("Playlist title mmismatch: _db[playlist_url_s]['title']=%s, playlist_title=%s", _db[playlist_url_s]['title'], playlist_title)
+                LOG.warning("Playlist title mismatch: _db[playlist_url_s]['title']=%s, playlist_title=%s", _db[playlist_url_s]['title'], playlist_title)
             
-            # Restriction: scan channels once per day
+            # Restriction: scan channels only if a new video was uploaded
             if playlist_is_yt_channel:
-                if _db[playlist_url_s].get('last_scan') == (datetime.date.today() - datetime.timedelta(days=1)).strftime("%Y%m%d"):
-                    LOG.info("Skipping channel scan: Already scanned today.")
+                # if _db[playlist_url_s].get('last_scan') == (datetime.date.today() - datetime.timedelta(days=1)).strftime("%Y%m%d"):
+                #     LOG.info("Skipping channel scan: Already scanned today.")
+                #     continue
+                if _db[playlist_url_s].get('last_video_id') == latest_video_id:
+                    LOG.info("Skipping channel scan: No new video detected.")
                     continue
             
             successful_downloads = download_playlist(
@@ -514,7 +526,8 @@ def main() -> None:
                     'is_channel': playlist_is_yt_channel,
                     'items_completed' : _db[playlist_url_s].get('done'),
                     'last_scan' : _db[playlist_url_s].get('last_scan'),
-                    'do_extract_audio': do_extract_audio
+                    'do_extract_audio': do_extract_audio,
+                    'infos': playlist_infos
                 },
                 download_dir=surveiled_path_p
             )
@@ -523,29 +536,34 @@ def main() -> None:
             if playlist_is_yt_channel:
                 LOG.debug("Scan done")
                 _db[playlist_url_s]['last_scan'] = (datetime.date.today() - datetime.timedelta(days=1)).strftime("%Y%m%d")
+                _db[playlist_url_s]['last_video_id'] = latest_video_id
             elif successful_downloads:
                 LOG.debug("Successfully downloaded %s", successful_downloads)
-                _db[playlist_url_s]['done'].extend( successful_downloads )
+                debug_var(_db[playlist_url_s].get('done',[]))
+                _db[playlist_url_s]['done'] = _db[playlist_url_s].get('done',[]) + successful_downloads
+                debug_var(_db[playlist_url_s]['done'])
             else:
                 LOG.debug("Did nothing")
 
             # Save DB
             surveiled_playlist_db.write_text(
-                json.dumps(_db),
+                json.dumps(_db, indent=2),
                 encoding='utf8'
             )
 
 
 if __name__=='__main__':
-    _lock = SCRIPT_DIR / 'AutoYoutubeDL.lock'
-    if _lock.is_file():
+    
+    if LOCK.is_file():
+        # Lock file present => abort
         LOG.warning("Lock file detected: aborting execution")
-        end()
-    _lock.touch()
+        sys.exit(0)
+    if not any( x in sys.argv for x in ('-h','--help') ):
+        # Lock file abscent + not lauching help => create lock
+        LOCK.touch()
     try:
         log_date()
         main()
     except Exception:
         pass
-    _lock.unlink(missing_ok=True)
     end()
