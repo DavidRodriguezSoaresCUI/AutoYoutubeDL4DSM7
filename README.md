@@ -1,13 +1,15 @@
-# [AutoYoutubeDL4DSM7](https://gitlab.com/DRSCUI/autoyoutubedl4dsm7)
+# [AutoYoutubeDL4DSM7](https://github.com/DavidRodriguezSoaresCUI/AutoYoutubeDL4DSM7)
 
 Do you want to add to your Synology NAS the ability to make backups of Youtube playlists and channels, keep them up to date and all this in a per-user basis ? This may be for you.
 
 Features :
- - Compatible with __public__ and __unlisted__ Youtube playlists (not _private_).
- - Compatible with __age-restricted__ Youtube videos (as long as you have proven Google/Youtube your age) (TODO:check).
- - Set-and-forget install; edit behavior whenever
- - Flexible download location and per-user playlist/channel backup file
- - Faster playlist lookup: diverse tricks to speedup scan for new content (yt-dlp is not optimized for frequent scanning)
+- Compatible with __public__ and __unlisted__ Youtube playlists (not _private_).
+- Set-and-forget install; edit behavior whenever
+- Flexible download location and per-user playlist/channel backup file
+- Faster playlist lookup: diverse tricks to speedup scan for new content (yt-dlp is not optimized for frequent scanning)
+
+TODO:
+- Compatible with __age-restricted__ Youtube videos using your private cookies (as long as you have proven Google/Youtube your age).
 
 ## Notations
 
@@ -17,7 +19,6 @@ Please take note of the notations used in this file :
  - `<AYDL_SCRIPT_PATH>` : Has to be replaced with `AutoYoutubeDL.py` when launching AYDL from the its location directory, `path/to/AYDL/AutoYoutubeDL.py` otherwise.
 
 ## Requirements
-
 
 You need `Python 3.6` or later installed on your machine and callable from the terminal. [Link to python.org/downloads](https://www.python.org/downloads/)
 
@@ -83,6 +84,19 @@ surveiled_path = [
 ```
 
 On next launch, AYDL will attempt to create user directories, with a single file with instruction in it, hereby referred as ``user local config file``.
+
+### Adding scheduled task
+
+In DSM7, the task scheduler can run a task for you periodically. See details in documentation [here](https://kb.synology.com/en-global/DSM/help/DSM/AdminCenter/system_taskscheduler?version=7), follow example ``To create a scheduled task`` and under ``User-defined script``, type a command following this format:
+```
+python3 <AYDL-directory>/AutoYoutubeDL.py --log_progress
+```
+for example:
+```
+python3 /volume1/homes/John/git/autoyoutubedl4dsm7/AutoYoutubeDL.py --log_progress
+```
+
+To help you troubleshoot issues on scheduled task execution, you can try ticking ``Send run details by email`` and ``Send run details only when the script terminates abnormally`` and also taking a look at AYDL logs.
 
 ## User Setup
 

@@ -52,16 +52,18 @@ if __name__=='__main__':
     import configparser
     import datetime
     # import importlib
+    import subprocess
     import json
     import logging
     import re
     import sys
     import urllib.request
+    from collections import defaultdict
     from pathlib import Path
     from pprint import pformat
-    from typing import NoReturn, Tuple, List
+    from typing import NoReturn, Tuple, List, Iterable, Callable, Any
     
-    from pprint import pprint
+    # from pprint import pprint
 
     try:
         import yt_dlp
@@ -286,6 +288,9 @@ class YDLDownloadMonitor:
             self.curr_category, self.curr_id = None, None
 
 class FakeLogger(logging.Logger):
+    ''' Interface for ProgressMonitor
+    Yes I understand it is mostly redundant
+    '''
 
     def __init__(self) -> None:
         super().__init__('FakeLogger', level=logging.DEBUG)
@@ -303,7 +308,7 @@ class FakeLogger(logging.Logger):
         pass
 
 class ProgressMonitor(FakeLogger):
-
+    ''' Hacky way of monitoring playlist/channel download progress with a Logger '''
     def __init__(self) -> None:
         super().__init__()
         self.pattern = re.compile(r"\[download\] Downloading video ([0-9]+) of ([0-9]+)")
@@ -467,6 +472,65 @@ def log_date() -> None:
     with (SCRIPT_DIR / 'AutoYoutubeDL.run.log').open('a') as f:
         f.write(f"{datetime.datetime.now()}\n")
 
+
+def check_for_unmuxed_videos(root: Path) -> None:
+    ''' Unfortunately it happens that some videos don't get muxed,
+    leaving corresponding .mp4 and .m4a files instead.
+    This attempts to fix it.
+    '''
+    def group_by(elements: Iterable[Any], criterion: Callable) -> dict:
+        res = defaultdict(list)
+        for e in elements:
+            res[criterion(e)].append(e)
+        return res
+
+    def mux_mp4(destination_title: str, mp4_video: Path, m4a_audio: Path) -> None:
+        LOG.info("Muxing %s ..", destination_title)
+        command = [
+            'ffmpeg',
+            '-i', mp4_video,
+            '-i', m4a_audio,
+            '-c', 'copy',
+            '-loglevel', 'info',
+            (mp4_video.parent / destination_title)
+        ]
+        output = subprocess.check_output(command, shell=False, universal_newlines=True, stderr=subprocess.STDOUT)
+        # On success, last line FFmpeg ouputs contains stats. Here we check for them.
+        if 'muxing overhead' not in output:
+            raise RuntimeError(f"FFmpeg failed; check output for errors:\n{output}")
+        mp4_video.unlink()
+        m4a_audio.unlink()
+
+    is_unmuxed_file = lambda file_path_stem: len(file_path_stem)>5 and file_path_stem[-5:-3]=='.f'
+    unmuxed_files = list(
+        _file
+        for _file in root.rglob('*.*')
+        if is_unmuxed_file(_file.stem)
+    )
+    if not unmuxed_files:
+        LOG.info("Non unmuxed video found!")
+
+    actual_title = lambda _f: _f.stem if len(_f.stem)<6 else _f.stem[:-5]
+    unmuxed_file_couples = group_by(unmuxed_files, actual_title)
+    LOG.info("Found %d unmuxed videos!", len(list(unmuxed_file_couples.keys())))
+
+    for title,elements in unmuxed_file_couples.items():
+        if len(elements)!=2:
+            LOG.warning("%d elements for title='%s', elements=%s", len(elements), title, elements)
+            continue
+
+        video_components = group_by(elements, lambda x: x.suffix)
+        if not all(k in video_components for k in ('.mp4','.m4a')):
+            LOG.warning("video_components=%s", video_components)
+            continue
+
+        mux_mp4( 
+            destination_title=(title + '.mp4'),
+            mp4_video=video_components['.mp4'][0],
+            m4a_audio=video_components['.m4a'][0]
+        )
+        
+
 ############################## 'main' section ##############################
 
 @bannerize(style='lean')
@@ -550,6 +614,8 @@ def main() -> None:
                 json.dumps(_db, indent=2),
                 encoding='utf8'
             )
+
+        check_for_unmuxed_videos(surveiled_path_p)
 
 
 if __name__=='__main__':
